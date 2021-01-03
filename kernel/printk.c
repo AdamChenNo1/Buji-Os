@@ -44,6 +44,7 @@ int color_printk(unsigned int FRcolor,unsigned int BKcolor,const char* fmt,...) 
         if (Pos.XPosition >= (Pos.XResolution / Pos.XCharSize)) {
             Pos.YPosition++;
             Pos.XPosition = 0;
+		}
         if (Pos.YPosition >= (Pos.YResolution / Pos.YCharSize)) {
             Pos.YPosition = 0;
         }
@@ -71,6 +72,70 @@ void putchar(unsigned int *fb,int Xsize,int x,int y,unsigned int FRcolor,unsigne
         }
         fontp++;
     }
+}
+
+
+
+//convert numeric letters into integers
+int skip_atoi(const char **s){
+	int i = 0;
+	while (is_digit(**s))
+		i = i*10 + *((*s)++) - '0';
+	return i;
+}
+
+static char * number(char * str, long num, int base, int size, int precision,	int type)
+{
+	char c,sign,tmp[50];
+	const char *digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	int i;
+
+	if (type&SMALL) digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+	if (type&LEFT) type &= ~ZEROPAD;
+	if (base < 2 || base > 36)
+		return 0;
+	c = (type & ZEROPAD) ? '0' : ' ' ;
+	sign = 0;
+	if (type&SIGN && num < 0) {
+		sign='-';
+		num = -num;
+	} else
+		sign=(type & PLUS) ? '+' : ((type & SPACE) ? ' ' : 0);
+	if (sign) size--;
+	if (type & SPECIAL)
+		if (base == 16) size -= 2;
+		else if (base == 8) size--;
+	i = 0;
+	if (num == 0)
+		tmp[i++]='0';
+	else while (num!=0)
+		tmp[i++]=digits[do_div(num,base)];
+	if (i > precision) precision=i;
+	size -= precision;
+	if (!(type & (ZEROPAD + LEFT)))
+		while(size-- > 0)
+			*str++ = ' ';
+	if (sign)
+		*str++ = sign;
+	if (type & SPECIAL)
+		if (base == 8)
+			*str++ = '0';
+		else if (base==16) 
+		{
+			*str++ = '0';
+			*str++ = digits[33];
+		}
+	if (!(type & LEFT))
+		while(size-- > 0)
+			*str++ = c;
+
+	while(i < precision--)
+		*str++ = '0';
+	while(i-- > 0)
+		*str++ = tmp[i];
+	while(size-- > 0)
+		*str++ = ' ';
+	return str;
 }
 
 int vsprintf(char * buf,const char *fmt, va_list args)
