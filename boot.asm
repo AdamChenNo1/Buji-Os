@@ -1,262 +1,100 @@
-    org 0x7c00  ; Boot 状态, Bios 将把 Boot Sector 加载到 0:7C00 处并开始执行
+    org 0x7c00 ;将程序的起始地址设臂在Ox7c00处
 
-
-BaseOfStack     equ 0x7c00
-BaseOfLoader    equ 0x1000
-OffsetOfLoader  equ 0x00
-
-RootDirSectors          equ 14
-SectorNumOfRootDirStart equ 19
-SectorNumofFATStart     equ 1
-SectorBalance           equ 17
-
-    jmp short Label_Start
-    nop
-    BS_OEMName  db 'MINEBoot'
-    BPB_BytesPerSec  dw 512
-    BPB_SecPerClus  db 1
-    BPB_RsvdSecCnt  dw 1
-    BPB_NumFATs  db 2
-    BPB_RootEntCnt  dw 224
-    BPB_TotalSec16  dw 2880
-    BPB_Media  db 0xf0
-    BPB_FATSz16  dw 9
-    BPB_SecPerTrk  dw 0x12
-    BPB_NumHeads  dw 2
-    BPB_hiddSec  dd 0
-    BS_TotSec32  dd 0
-    BS_DrvNum  db 0
-    BS_Reservedl  db 0
-    BS_BootSig  db 29h
-    BS_VolId  dd 0
-    BS_VolLab db 'boot loader'
-    BS_FileSysType  db  'FAT12'
+BaseOfStack equ 0x7c00 ;将标识符BaseOfStack等价为数值Ox7c00，用于为栈指针寄存器SP提供栈基址
 
 Label_Start:
     mov ax,cs
+    mov ds,ax
     mov ds,ax
     mov es,ax
     mov ss,ax
     mov sp,BaseOfStack
 
-;===============clear screen
-
+;清屏——利用0x06号功能,上卷全部行,则可清屏｡
+; -----------------------------------------------------------
+;INT 0x10 功能号:0x06 功能描述:上卷窗口
+; -----------------------------------------------------------
+;输入:
+;AH 功能号= 0x06
+;AL = 上卷的行数(如果为0,表示清屏)，在使用清屏功能时 (AL寄存器为0) ，其他BX EX DX寄存器参数将不起作用
+;BH = 上卷后空出的位置放置的属性
+;(CL,CH) = 上卷范围的左上角的(X,Y)位置
+;(DL,DH) = 上卷范围右下角的(X,Y)位置
     mov ax,0600h
     mov bx,0700h
-    mov cx,0
-    mov dx,0184fh
+    mov cx,0        ; 左上角: (0, 0)
+    mov dx,0184fh   ; 右下角: (80,25),
+                    ; VGA 文本模式中,一行只能容纳80个字符,共25行｡
+                    ; 下标从0 开始,所以0x18=24,0x4f=79
     int 10h
 
 ;================set focus
-
+;设置光标位置——利用BIOS中断服务程序INT 10h的主功能号AH=02h可实现屏幕光标位置的设置
+; -----------------------------------------------------------
+;行号和列号皆从0开始计数，屏幕的列坐标0点和行坐标0点位于屏幕的左上角，纵、横坐标分别向下和向右两个方向延伸
+; -----------------------------------------------------------
+;INT 0x10 功能号:AH = 0x02 功能描述:设定光标位置
+; -----------------------------------------------------------
+;输入:
+;AH 功能号= 0x02
+;DH = 游标的列数
+;DL = 游标的行数
+;BH = 页码
     mov ax,0200h
     mov bx,0000h
     mov dx,0000h
     int 10h
 
 ;================display on screen:Start Booting...
+;显示字符串——利用BIOS中断服务程序INT 10h的主功能号AH=13h可实现字符串的显示功能
+; -----------------------------------------------------------
+;INT 0x10 功能号:AH = 0x13 功能描述:显示一行字符串。
+; -----------------------------------------------------------
+;输入:
+;AL 写入模式
+    ;AL = 00h: 字符串的属性由BL寄存器提供，而CX寄存器提供字符串长度（以B为单位），显示后光标不变，即显示前的光标位置
+    ;AL = 01h: 同AL = 00h,但光标会移动至字符串末尾位置
+    ;AL = 02h: 字符串属性由每个字符后面紧跟的字节提供，故CX寄存器提供的字符串长度改成以Word为单位，显示后光标位置不变
+    ;AL = 03h: 同AL = 02h,但光标会移动至字符串末尾位置
+;CX = 字符串的长度。
+;DH = 游标的坐标行号
+;DL = 游标的坐标列号
+;ES:BP = 要显示字符串的内存地址
+;BH = 页码
+;BL = 字符属性/颜色属性
+    ;bit 0~2: 字体颜色（0:黑，1:蓝，2:绿，3:青，4:红，5:紫，6:棕，7:白）
+    ;bit 3: 字体亮度（0:字体正常，1:字体高亮度）
+    ;bit 4~6: 背景颜色（0:黑，1:蓝，2:绿，3:青，4:红，5:紫，6:棕，7:白）
+    ;bit 7: 字体闪烁（0:不闪烁，1:字体闪烁）
 
-    mov ax,1301h
-    mov bx,000fh
+    mov ax,1301h            ;子功能号13 显示字符及属性,要存入ah 寄存器,al 设置写字符方式 ah=01: 显示字符串,光标跟随移动
+    mov bx,000fh            ; bh 存储要显示的页号,此处是第0 页,; bl 中是字符属性,属性黑底绿字(bl = 0fh)
     mov dx,0000h
-    mov cx,10
+    mov cx,10               ; cx 为串长度,不包括结束符0 的字符个数
     push ax
     mov ax,ds
     mov es,ax
     pop ax
-    mov bp,StartBootMessage
+    mov bp,StartBootMessage ; es:bp 为串首地址,es 此时同cs 一致,
     int 10h
 
 ;================reset floppy
-    xor ah,ah           
-    xor dl,dl
-    int 13h         ;软驱复位
+;    xor ah,ah
+;    xor dl,dl
+;    int 13h
 
-;======================search loader.bin===========================
-    mov     word    [SectorNo],     SectorNumOfRootDirStart
+;    jmp $
 
-Label_Search_In_Root_Dir_Begin:
-    cmp     word    [RootDirSizeForLoop],   0
-    jz      Label_No_LoaderBin
-    dec     word    [RootDirSizeForLoop]
-    mov     ax,     00h
-    mov     es,     ax
-    mov     bx,     8000h
-    mov     ax,     [SectorNo]
-    mov     cl,     1
-    call    Func_ReadOneSector  ;[0x000000007c9a] 0000:7c9a (unk. ctxt): call .+53 (0x00007cd2)    ; e83500
-    mov     si,     LoaderFileName
-    mov     di,     8000h
-    cld
-    mov     dx,     10h
-
-Label_Search_For_LoaderBin:
-    cmp     dx,     0
-    jz      Label_Goto_Next_Sector_In_Root_Dir
-    dec     dx
-    mov     cx,     11
-
-Label_Cmp_FileName:
-    cmp     cx,     0
-    jz      Label_FileName_Found
-    dec     cx
-    lodsb
-    cmp     al,     byte    [es:di]
-    jz      Label_Go_On
-    jmp     Label_Different
-
-Label_Go_On:
-    inc     di
-    jmp     Label_Cmp_FileName
-
-Label_Different:
-    and     di,     0ffe0h
-    add     di,     20h
-    jmp     Label_Search_For_LoaderBin
-
-Label_Goto_Next_Sector_In_Root_Dir:
-
-    add     word    [SectorNo],     1
-    jmp     Label_Search_In_Root_Dir_Begin
-
-;======================read one sector from floppy===========================
-Func_ReadOneSector:
-
-    push    bp
-    mov     bp,     sp
-    sub     esp,    2
-    mov     byte    [bp-2],     cl
-    xor     ah,     ah
-    push    bx
-    mov     bl,     [BPB_SecPerTrk]
-    div     bl
-    inc     ah
-    mov     cl,     ah          ;起始扇区号
-    mov     dh,     al          ;磁头号
-    shr     al,     1           ;y >> 1 (其实是 y/BPB_NumHeads, 这里BPB_NumHeads=2)
-    mov     ch,     al          ;磁道号,也称柱面号
-    and     dh,     1           ;dh & 1 = 磁头号 
-    pop     bx                  ;恢复 bx 
-     ; 至此, "柱面号, 起始扇区, 磁头号" 全部得到
-    mov     dl,     [BS_DrvNum] ;驱动器号（0表示软盘A）
-
-Label_Go_On_Reading:
-    mov     ah,     2                ; 读 
-    mov     al,     byte    [bp-2]  ;读取的扇区数
-    int     13h
-    jc   Label_Go_On_Reading        ;如果读取错误 CF 会被置为 1, 这时就不停地读, 直到正确为止
-    add     esp,    2
-    pop     bp
-    ret
-
-;======================display on screen: ERROR:No LOADER Found===========================
-Label_No_LoaderBin:
-    mov     ax,     1301h
-    mov     bx,     008ch
-    mov     dx,     0100h
-    mov     cx,     21
-    push    ax
-    mov     ax,     ds
-    mov     es,     ax
-    pop     ax
-    mov     bp,     NoLoaderMessage
-    int     10h
-    jmp     $
-
-;======================get FAT Entry===========================
-Func_GetFATEntry:
-    push    es
-    push    bx
-    push    ax
-    mov     ax,     00
-    mov     es,     ax
-    pop     ax
-    mov     byte    [Odd],     0
-    mov     bx,     3
-    mul     bx
-    mov     bx,     2
-    xor     dx,     dx
-    div     bx                      ;
-    cmp     dx,     0
-    jz      Label_Even
-    mov     byte    [Odd],      1
-
-Label_Even:
-    xor     dx,     dx
-    mov     bx,     [BPB_BytesPerSec]
-    div     bx
-    push    dx
-    mov     bx,     8000h
-    add     ax,     SectorNumofFATStart
-    mov     cl,     2
-    call    Func_ReadOneSector
-
-    pop     dx
-    add     bx,     dx
-    mov     ax,     [es:bx]
-    cmp     byte    [Odd],      1
-    jnz     Label_Even_2
-    shr     ax,     4
-
-Label_Even_2:
-    and     ax,     0fffh
-    pop     bx
-    pop     es
-    ret
-
-;======= found loader.bin name in root director struct====================
-Label_FileName_Found:
-    mov     ax,     RootDirSectors          
-    and     di,     0ffe0h                  ;di->当前条目的开始
-    and     di,     01ah                    ;di->首Sector
-    mov     cx,     word            [es:di]
-    push    cx                              ;保存此Sector在FAT中的序号
-    add     cx,     ax
-    add     cx,     SectorBalance
-    mov     ax,     BaseOfLoader
-    mov     es,     ax
-    mov     bx,     OffsetOfLoader          ;bx<-OffsetOfLoader
-    mov     ax,     cx                      ;ax<-Sector号
-
-Label_Go_On_Loading_File:
-    push    ax
-    push    bx
-    mov     ah,      0eh
-    mov     al,     '.'
-    mov     bl,     0fh
-    int     10h
-    pop     bx
-    pop     ax
-
-    mov     cl,    1
-    call    Func_ReadOneSector
-    pop     ax
-    call    Func_GetFATEntry
-    cmp     ax,     0fffh
-    jz      Label_File_Loaded
-    push    ax
-    mov     dx,     RootDirSectors
-    add     ax,     dx
-    add     ax,     SectorBalance
-    add     bx,     [BPB_BytesPerSec]
-    jmp     Label_Go_On_Loading_File
-
-Label_File_Loaded:
-    jmp     BaseOfLoader:OffsetOfLoader
-
-;======= tmp variable============
-RootDirSizeForLoop  dw      RootDirSectors
-SectorNo            dw      0
-Odd                 db      0
-
-;======= display  messages============
-StartBootMessage    db      "Start Boot"
-NoLoaderMessage     db      "ERROR:No Loader Found"
-LoaderFileName      db      "LOADER BIN",0
+StartBootMessage: db "Start Boot" ;定义一个字符串"Start Boot"，并取名为StartBootMessage,
 
 ;================fill zero until whole sector
 
-    times 510- ( $ - $$ ) db 0
-    dw 0xaa55
+    times 510- ( $ - $$ ) db 0 ;$-$$的意思是，将当前行被编译后的地址（机器码地址）减去本节 (Section) 程序的起始地址。
+                               ;由于Boot引导程序只有一个以 Ox7c00 为起始地址的节，那么表达式$-$$的作用是计算出当前程序生成的机器码
+                               ;长度，进而可知引导扇区必须填充的数据长度 (510 - ($ - $$)）。又因为软盘是个块设备，访问
+                               ;块设备的特点是每次必须以扇区为单位 (512 B) ，而times伪指令恰好可以实现多次重复操作，所以这
+                               ;行汇编代码的目的是，通过times 伪指令填充引导扇区剩余空间，以保证生成的文件大小为512B
+    dw 0xaa55 ;引导扇区是以 0x55 0xaa 两个字节作为结尾，由于Intel处理器是以小端模式存储数据，那么用一个字表示 0x55、0xaa就应该是Oxaa55, 这样它在扇区里的存储顺序才是0x55 0xaa
+
 
 
